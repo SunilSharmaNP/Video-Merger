@@ -3,7 +3,8 @@ Video Merge Bot - Enhanced Version
 Based on AbirHasan2005's VideoMerge-Bot design
 Modified for SunilSharmaNP/Video repository
 """
-
+import uvloop
+uvloop.install()
 import asyncio
 import logging
 import os
