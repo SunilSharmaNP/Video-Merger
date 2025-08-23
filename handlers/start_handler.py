@@ -66,3 +66,4 @@ async def cancel_command(client: Client, message: Message):
             "You don't have any pending merge operation.",
             quote=True
         )
+        
