@@ -98,3 +98,4 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
     
     else:
         await callback_query.answer("❓ Unknown action!", show_alert=True)
+        
