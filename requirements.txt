@@ -1,4 +1,4 @@
-tgcrypto>=1.7.2
+tgcrypto
 uvloop>=0.20.0
 pyrogram>=2.0.106
 aiofiles>=23.1.0
