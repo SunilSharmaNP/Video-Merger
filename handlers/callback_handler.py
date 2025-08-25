@@ -6,7 +6,6 @@ from pyrogram import Client, filters
 from pyrogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.config import Config
 from bot.client import bot_client, get_user_session
-from handlers.merge_handler import start_merge_process
 from database.users_db import get_user_count
 
 @bot_client.on_callback_query()
@@ -62,6 +61,7 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
         )
     
     elif data == "merge_videos":
+        from handlers.merge_handler import start_merge_process
         session = get_user_session(user_id)
         
         if len(session["videos"]) < 2:
