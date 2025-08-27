@@ -1,83 +1,113 @@
 """
-File utility functions
+Upload utility functions for cloud services
 """
 
-import os
-import aiofiles
 import aiohttp
+import os
 from bot.config import Config
-from utils.helpers import sanitize_filename
 
-async def download_video(client, file_id: str, file_name: str) -> str:
-    """Download video file"""
-    try:
-        # Sanitize filename
-        safe_filename = sanitize_filename(file_name)
-        download_path = os.path.join(Config.DOWNLOAD_DIR, safe_filename)
-        
-        # Download file
-        await client.download_media(file_id, download_path)
-        
-        if os.path.exists(download_path):
-            return download_path
-        return None
+async def upload_large_file(file_path: str) -> str:
+    """Upload large file to cloud service"""
+    # Try GoFile first
+    if Config.GOFILE_TOKEN:
+        result = await upload_to_gofile(file_path)
+        if result:
+            return result
     
-    except Exception as e:
-        print(f"Download error: {e}")
-        return None
+    # Try other services or return None
+    return await upload_to_gofile_anonymous(file_path)
 
-async def save_thumbnail(client, file_id: str, user_id: int) -> str:
-    """Download and save thumbnail"""
-    try:
-        thumbnail_path = os.path.join(Config.THUMBNAILS_DIR, f"thumb_{user_id}.jpg")
-        
-        # Download thumbnail
-        await client.download_media(file_id, thumbnail_path)
-        
-        if os.path.exists(thumbnail_path):
-            return thumbnail_path
-        return None
-    
-    except Exception as e:
-        print(f"Thumbnail save error: {e}")
-        return None
-
-async def clean_temp_files(user_id: int):
-    """Clean temporary files for user"""
-    try:
-        # Clean download directory
-        for file in os.listdir(Config.DOWNLOAD_DIR):
-            if str(user_id) in file:
-                try:
-                    os.remove(os.path.join(Config.DOWNLOAD_DIR, file))
-                except:
-                    pass
-        
-        # Clean merged directory (old files)
-        for file in os.listdir(Config.MERGED_DIR):
-            if f"merged_{user_id}" in file:
-                try:
-                    file_path = os.path.join(Config.MERGED_DIR, file)
-                    # Remove files older than 1 hour
-                    if os.path.getctime(file_path) < (time.time() - 3600):
-                        os.remove(file_path)
-                except:
-                    pass
-    
-    except Exception as e:
-        print(f"Cleanup error: {e}")
-
-async def download_file(url: str, file_path: str) -> bool:
-    """Download file from URL"""
+async def upload_to_gofile(file_path: str) -> str:
+    """Upload file to GoFile.io with token"""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    async with aiofiles.open(file_path, 'wb') as f:
-                        async for chunk in response.content.iter_chunked(8192):
-                            await f.write(chunk)
-                    return True
-        return False
+            # Get upload server
+            async with session.get('https://api.gofile.io/getServer') as response:
+                if response.status != 200:
+                    return None
+                
+                data = await response.json()
+                server = data['data']['server']
+            
+            # Upload file
+            with open(file_path, 'rb') as file:
+                form_data = aiohttp.FormData()
+                form_data.add_field('file', file, filename=os.path.basename(file_path))
+                form_data.add_field('token', Config.GOFILE_TOKEN)
+                
+                async with session.post(f'https://{server}.gofile.io/uploadFile', data=form_data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        if result['status'] == 'ok':
+                            return result['data']['downloadPage']
+        
+        return None
+    
     except Exception as e:
-        print(f"URL download error: {e}")
-        return False
+        print(f"GoFile upload error: {e}")
+        return None
+
+async def upload_to_gofile_anonymous(file_path: str) -> str:
+    """Upload file to GoFile.io anonymously"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Get upload server
+            async with session.get('https://api.gofile.io/getServer') as response:
+                if response.status != 200:
+                    return None
+                
+                data = await response.json()
+                server = data['data']['server']
+            
+            # Upload file
+            with open(file_path, 'rb') as file:
+                form_data = aiohttp.FormData()
+                form_data.add_field('file', file, filename=os.path.basename(file_path))
+                
+                async with session.post(f'https://{server}.gofile.io/uploadFile', data=form_data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        if result['status'] == 'ok':
+                            return result['data']['downloadPage']
+        
+        return None
+    
+    except Exception as e:
+        print(f"GoFile anonymous upload error: {e}")
+        return None
+
+async def upload_to_streamtape(file_path: str) -> str:
+    """Upload file to Streamtape"""
+    try:
+        if not Config.STREAMTAPE_API_USERNAME or not Config.STREAMTAPE_API_PASS:
+            return None
+        
+        async with aiohttp.ClientSession() as session:
+            # Get upload URL
+            params = {
+                'login': Config.STREAMTAPE_API_USERNAME,
+                'key': Config.STREAMTAPE_API_PASS
+            }
+            
+            async with session.get('https://api.streamtape.com/file/ul', params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data['status'] == 200:
+                        upload_url = data['result']['url']
+                        
+                        # Upload file
+                        with open(file_path, 'rb') as file:
+                            form_data = aiohttp.FormData()
+                            form_data.add_field('file1', file, filename=os.path.basename(file_path))
+                            
+                            async with session.post(upload_url, data=form_data) as upload_response:
+                                if upload_response.status == 200:
+                                    result = await upload_response.json()
+                                    if result['status'] == 200:
+                                        return result['result']['url']
+        
+        return None
+    
+    except Exception as e:
+        print(f"Streamtape upload error: {e}")
+        return None
