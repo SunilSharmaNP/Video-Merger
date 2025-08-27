@@ -1,24 +1,22 @@
 """
-Video Merge Bot - Enhanced Version
-Based on AbirHasan2005's VideoMerge-Bot design
-Modified for SunilSharmaNP/Video repository
+Video Merge Bot - Complete Working Version
 """
+
 import uvloop
 uvloop.install()
+
 import asyncio
 import logging
 import os
 import sys
 from pyrogram import Client
-from bot.config import Config
-from bot.client import bot_client
 
-# Configure logging
+# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('bot.log'),
+        logging.FileHandler('logs/bot.log'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -34,8 +32,12 @@ async def main():
         os.makedirs("downloads", exist_ok=True)
         os.makedirs("merged", exist_ok=True)
         os.makedirs("thumbnails", exist_ok=True)
+        os.makedirs("data", exist_ok=True)
+        os.makedirs("logs", exist_ok=True)
         
-        # Start the bot
+        # Import and start bot
+        from bot.client import bot_client
+        
         await bot_client.start()
         
         # Get bot information
