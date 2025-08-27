@@ -1,5 +1,5 @@
 """
-Enhanced video merge handler with advanced features
+Enhanced merge handler with proper download logic
 """
 
 import os
@@ -10,7 +10,7 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.client import bot_client, get_user_session, merge_tasks
 from bot.config import Config
 from utils.helpers import format_duration, get_file_size
-from utils.file_utils import download_video, clean_temp_files
+from utils.file_utils import download_from_tg, clean_temp_files
 from utils.ffmpeg_utils import merge_videos
 from utils.upload_utils import upload_large_file, upload_to_telegram
 
@@ -40,7 +40,7 @@ async def merge_command(client, message: Message):
     await start_merge_process(client, message, user_id)
 
 async def start_merge_process(client, message: Message, user_id: int):
-    """Enhanced merge process with advanced features"""
+    """Enhanced merge process with detailed debugging"""
     session = get_user_session(user_id)
     session["merge_in_progress"] = True
     
@@ -58,6 +58,9 @@ async def start_merge_process(client, message: Message, user_id: int):
             "start_time": time.time()
         }
         
+        print(f"Starting merge for user {user_id}")
+        print(f"Videos in session: {len(session['videos'])}")
+        
         # Download all videos
         await progress_msg.edit_text(
             "📥 **Downloading Videos...**\n\n"
@@ -68,44 +71,88 @@ async def start_merge_process(client, message: Message, user_id: int):
         for i, video_info in enumerate(session["videos"]):
             await progress_msg.edit_text(
                 f"📥 **Downloading Videos... ({i+1}/{len(session['videos'])})**\n\n"
-                f"Current: {video_info['file_name']}"
+                f"Current: {video_info['file_name']}\n"
+                f"Source: {video_info.get('source', 'unknown')}"
             )
             
-            # Check if it's already downloaded (URL videos)
-            if video_info.get("local_path") and os.path.exists(video_info["local_path"]):
-                video_paths.append(video_info["local_path"])
-            elif video_info.get("file_id"):
-                # Download from Telegram
-                path = await download_video(
-                    client, 
-                    video_info["file_id"], 
-                    video_info["file_name"], 
-                    user_id, 
-                    progress_msg
-                )
-                if path:
-                    video_paths.append(path)
+            print(f"Processing video {i+1}: {video_info}")
+            
+            try:
+                # Check if it's already downloaded (URL videos)
+                if video_info.get("local_path") and os.path.exists(video_info["local_path"]):
+                    video_paths.append(video_info["local_path"])
+                    print(f"Using existing file: {video_info['local_path']}")
+                    
+                elif video_info.get("file_id"):
+                    # Download from Telegram using message
+                    original_msg = None
+                    try:
+                        original_msg = await client.get_messages(user_id, video_info["message_id"])
+                        print(f"Got original message for {video_info['file_name']}")
+                    except Exception as e:
+                        print(f"Failed to get original message: {e}")
+                    
+                    if original_msg and (original_msg.video or original_msg.document):
+                        path = await download_from_tg(original_msg, user_id, progress_msg)
+                        if path and os.path.exists(path):
+                            video_paths.append(path)
+                            print(f"Downloaded from Telegram: {path}")
+                        else:
+                            print(f"Failed to download from Telegram: {video_info['file_name']}")
+                    else:
+                        print(f"Invalid original message for: {video_info['file_name']}")
+                        
+                else:
+                    print(f"No download method for: {video_info['file_name']}")
+                    
+            except Exception as e:
+                print(f"Download error for {video_info['file_name']}: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        print(f"Total video paths collected: {len(video_paths)}")
+        print(f"Video paths: {video_paths}")
         
         if not video_paths or len(video_paths) < 2:
-            await progress_msg.edit_text("❌ **Download Failed**\n\nFailed to download videos.")
+            await progress_msg.edit_text(
+                f"❌ **Download Failed**\n\n"
+                f"Only {len(video_paths)} out of {len(session['videos'])} videos downloaded successfully.\n"
+                f"Need at least 2 videos to merge.\n\n"
+                f"**Debug Info:**\n"
+                f"• Session videos: {len(session['videos'])}\n"
+                f"• Downloaded paths: {len(video_paths)}\n"
+                f"• Check logs for detailed error messages"
+            )
             return
         
-        # Create user-specific output directory
-        user_merged_dir = os.path.join(Config.MERGED_DIR, str(user_id))
-        os.makedirs(user_merged_dir, exist_ok=True)
+        # Verify all files exist and are valid
+        valid_paths = []
+        for path in video_paths:
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                valid_paths.append(path)
+                print(f"Valid file: {path} ({os.path.getsize(path)} bytes)")
+            else:
+                print(f"Invalid/missing file: {path}")
         
-        # Merge videos
-        output_path = os.path.join(user_merged_dir, f"merged_{int(time.time())}.mkv")
-        thumbnail_path = session.get("thumbnail")
+        if len(valid_paths) < 2:
+            await progress_msg.edit_text(
+                f"❌ **File Validation Failed**\n\n"
+                f"Only {len(valid_paths)} valid files found. Need at least 2 videos to merge.\n\n"
+                f"**File Status:**\n" +
+                "\n".join([f"• {os.path.basename(p)}: {'✅' if os.path.exists(p) else '❌'}" for p in video_paths])
+            )
+            return
         
-        success = await merge_videos(video_paths, output_path, thumbnail_path, progress_msg)
+        # Merge videos using enhanced function
+        output_path = await merge_videos(valid_paths, user_id, progress_msg)
         
-        if not success or not os.path.exists(output_path):
-            await progress_msg.edit_text("❌ **Merge Failed**\n\nFailed to merge videos.")
+        if not output_path or not os.path.exists(output_path):
+            await progress_msg.edit_text("❌ **Merge Failed**\n\nFailed to merge videos. Check logs for details.")
             return
         
         # Upload merged video
         file_size = os.path.getsize(output_path)
+        print(f"Merged file size: {file_size} bytes")
         
         if file_size > Config.LARGE_FILE_THRESHOLD:
             # Upload to cloud
@@ -130,6 +177,7 @@ async def start_merge_process(client, message: Message, user_id: int):
         else:
             # Upload to Telegram
             custom_filename = f"merged_video_{int(time.time())}"
+            thumbnail_path = session.get("thumbnail")
             
             success = await upload_to_telegram(
                 client, 
@@ -158,6 +206,8 @@ async def start_merge_process(client, message: Message, user_id: int):
     except Exception as e:
         await progress_msg.edit_text(f"❌ **Error Occurred**\n\n`{str(e)}`")
         print(f"Merge process error: {e}")
+        import traceback
+        traceback.print_exc()
     
     finally:
         # Clean up
