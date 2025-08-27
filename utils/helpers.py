@@ -1,5 +1,5 @@
 """
-Helper utility functions
+Enhanced helper utility functions
 """
 
 def get_file_size(size_bytes: int) -> str:
@@ -29,6 +29,12 @@ def format_duration(seconds: int) -> str:
         secs = seconds % 60
         return f"{hours}h {minutes}m {secs}s"
 
+def get_progress_bar(progress: float, length: int = 20) -> str:
+    """Generate progress bar string"""
+    filled = int(length * progress)
+    bar = "█" * filled + "░" * (length - filled)
+    return f"[{bar}]"
+
 def sanitize_filename(filename: str) -> str:
     """Sanitize filename for safe file operations"""
     import re
@@ -42,3 +48,20 @@ def sanitize_filename(filename: str) -> str:
         filename = name[:200-len(ext)-1] + ('.' + ext if ext else '')
     
     return filename.strip()
+
+def get_time_left(elapsed_time: float, progress_percent: float) -> str:
+    """Calculate estimated time remaining"""
+    if progress_percent <= 0:
+        return "Calculating..."
+    
+    total_time = elapsed_time / progress_percent
+    time_left = total_time - elapsed_time
+    
+    if time_left < 60:
+        return f"{int(time_left)}s"
+    elif time_left < 3600:
+        return f"{int(time_left // 60)}m {int(time_left % 60)}s"
+    else:
+        hours = int(time_left // 3600)
+        minutes = int((time_left % 3600) // 60)
+        return f"{hours}h {minutes}m"
