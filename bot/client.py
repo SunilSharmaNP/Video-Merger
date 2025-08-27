@@ -2,7 +2,6 @@
 Bot client initialization
 """
 
-import asyncio
 from pyrogram import Client
 from pyrogram.enums import ParseMode
 from bot.config import Config
@@ -17,14 +16,13 @@ bot_client = Client(
     api_hash=Config.API_HASH,
     bot_token=Config.BOT_TOKEN,
     parse_mode=ParseMode.MARKDOWN,
-    sleep_threshold=10,
-    plugins=dict(root="handlers")
+    plugins=dict(root="handlers"),
+    workdir="data"
 )
 
-# Store user sessions and merge tasks
+# User sessions storage
 user_sessions = {}
 merge_tasks = {}
-user_thumbnails = {}
 
 def get_user_session(user_id: int) -> dict:
     """Get user session data"""
