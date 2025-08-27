@@ -11,7 +11,7 @@ Config.validate_config()
 
 # Initialize the bot client
 bot_client = Client(
-    name="VideoMergeBot",
+    name="SanaMergeBot",
     api_id=Config.API_ID,
     api_hash=Config.API_HASH,
     bot_token=Config.BOT_TOKEN,
