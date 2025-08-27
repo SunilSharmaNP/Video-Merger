@@ -1,5 +1,5 @@
 """
-Enhanced upload handler with URL support
+Enhanced upload handler with proper URL detection and file handling
 """
 
 from pyrogram import filters
@@ -9,27 +9,30 @@ from bot.config import Config
 from utils.helpers import get_file_size, format_duration
 from utils.file_utils import download_from_url
 import re
+import os
 
-# URL regex pattern
-URL_PATTERN = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
+# Enhanced URL regex pattern
+URL_PATTERN = re.compile(r'https?://(?:[-\w.])+(?:[:\d]+)?(?:/(?:[\w/_.])*(?:\?(?:[\w&=%.])*)?(?:#(?:[\w.])*)?)?')
 
-@bot_client.on_message(filters.text & filters.private)
+@bot_client.on_message(filters.text & filters.private & ~filters.command(["start", "help", "ping", "cancel", "merge", "set_thumbnail", "del_thumbnail", "id"]))
 async def handle_url_message(client, message: Message):
     """Handle URL messages for video downloads"""
     text = message.text.strip()
     urls = URL_PATTERN.findall(text)
     
+    print(f"Text received: {text}")
+    print(f"URLs found: {urls}")
+    
     if not urls:
-        # Regular text message
-        if not text.startswith('/'):
-            await message.reply_text(
-                f"📢 You said: **{text}**\n\n"
-                "💡 **Tips:**\n"
-                "• Send video files to merge them\n"
-                "• Send direct video URLs to download and merge\n"
-                "• Use `/ping` to test the bot\n"
-                "• Use `/help` for more information"
-            )
+        # Regular text message - provide helpful response
+        await message.reply_text(
+            f"📢 You said: **{text}**\n\n"
+            "💡 **Tips:**\n"
+            "• Send video files to merge them\n" 
+            "• Send direct video URLs to download and merge\n"
+            "• Use `/ping` to test the bot\n"
+            "• Use `/help` for more information"
+        )
         return
     
     user_id = message.from_user.id
@@ -47,14 +50,17 @@ async def handle_url_message(client, message: Message):
     status_msg = await message.reply_text("📥 **Processing URLs...**", quote=True)
     
     downloaded_videos = 0
-    for url in urls:
+    total_urls = len(urls)
+    
+    for i, url in enumerate(urls):
         try:
+            await status_msg.edit_text(f"📥 **Processing URLs... ({i+1}/{total_urls})**\n\nCurrent: {url}")
+            
             # Download from URL
             file_path = await download_from_url(url, user_id, status_msg)
             
-            if file_path:
+            if file_path and os.path.exists(file_path):
                 # Add to session
-                import os
                 file_size = os.path.getsize(file_path)
                 file_name = os.path.basename(file_path)
                 
@@ -64,14 +70,18 @@ async def handle_url_message(client, message: Message):
                     "duration": 0,
                     "file_size": file_size,
                     "message_id": message.id,
-                    "local_path": file_path  # Store local path for URL downloads
+                    "local_path": file_path,  # Store local path for URL downloads
+                    "source": "url"  # Mark as URL download
                 }
                 
                 session["videos"].append(video_info)
                 downloaded_videos += 1
+                print(f"Successfully added URL video: {file_name} at {file_path}")
+            else:
+                print(f"Failed to download URL: {url}")
         
         except Exception as e:
-            print(f"URL download error: {e}")
+            print(f"URL download error for {url}: {e}")
     
     if downloaded_videos > 0:
         video_count = len(session["videos"])
@@ -103,7 +113,13 @@ async def handle_url_message(client, message: Message):
         
         await status_msg.edit_text(progress_text, reply_markup=keyboard)
     else:
-        await status_msg.edit_text("❌ **No videos downloaded**\n\nPlease check your URLs and try again.")
+        await status_msg.edit_text(
+            f"❌ **No videos downloaded**\n\n"
+            f"Failed to download from {total_urls} URLs. Please check:\n"
+            f"• URLs are valid and accessible\n"
+            f"• URLs point to video files\n"
+            f"• Internet connection is working"
+        )
 
 @bot_client.on_message(filters.video & filters.private)
 async def handle_video_upload(client, message: Message):
@@ -137,10 +153,12 @@ async def handle_video_upload(client, message: Message):
         "duration": message.video.duration or 0,
         "file_size": file_size,
         "message_id": message.id,
-        "local_path": None  # Will be set during download
+        "local_path": None,  # Will be set during download
+        "source": "telegram"  # Mark as Telegram upload
     }
     
     session["videos"].append(video_info)
+    print(f"Added Telegram video: {video_info['file_name']} (file_id: {message.video.file_id})")
     
     # Create progress message
     video_count = len(session["videos"])
@@ -215,10 +233,12 @@ async def handle_document_upload(client, message: Message):
             "duration": 0,  # Duration not available for documents
             "file_size": file_size,
             "message_id": message.id,
-            "local_path": None
+            "local_path": None,
+            "source": "document"  # Mark as document upload
         }
         
         session["videos"].append(video_info)
+        print(f"Added document video: {video_info['file_name']} (file_id: {document.file_id})")
         
         video_count = len(session["videos"])
         keyboard = None
@@ -247,17 +267,16 @@ async def handle_document_upload(client, message: Message):
             quote=True
         )
 
+# Thumbnail handlers remain the same...
 @bot_client.on_message(filters.photo & filters.private)
 async def handle_photo_upload(client, message: Message):
     """Handle photo uploads (for thumbnails)"""
     user_id = message.from_user.id
     
-    # Check if user is setting thumbnail
     if message.caption and "thumbnail" in message.caption.lower():
         await set_custom_thumbnail(client, message, user_id)
         return
     
-    # Regular photo upload message
     await message.reply_text(
         "📸 **Photo Received!**\n\n"
         "If you want to set this as a custom thumbnail for your merged videos, "
@@ -270,7 +289,6 @@ async def set_thumbnail_command(client, message: Message):
     """Handle /set_thumbnail command"""
     user_id = message.from_user.id
     
-    # Check if replying to a photo
     if message.reply_to_message and message.reply_to_message.photo:
         await set_custom_thumbnail(client, message.reply_to_message, user_id)
     else:
@@ -288,7 +306,6 @@ async def delete_thumbnail_command(client, message: Message):
     session = get_user_session(user_id)
     
     if session.get("thumbnail"):
-        # Remove thumbnail file
         import os
         if os.path.exists(session["thumbnail"]):
             os.remove(session["thumbnail"])
@@ -312,7 +329,6 @@ async def set_custom_thumbnail(client, message: Message, user_id: int):
     try:
         from utils.file_utils import save_thumbnail
         
-        # Download and save thumbnail
         thumbnail_path = await save_thumbnail(client, message.photo.file_id, user_id)
         
         if thumbnail_path:
