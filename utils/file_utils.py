@@ -3,6 +3,7 @@ Bulletproof file utilities with comprehensive error handling
 """
 
 import os
+import asyncio
 import time
 import aiofiles
 import aiohttp
@@ -247,6 +248,40 @@ async def download_from_tg(message, user_id: int, status_message=None) -> str:
             except:
                 pass
         return None
+
+# Add this function to your existing utils/file_utils.py file
+
+async def create_default_thumbnail(video_path: str) -> str:
+    """Create default thumbnail from video"""
+    try:
+        thumbnail_path = f"{os.path.splitext(video_path)[0]}.jpg"
+        metadata = await get_video_properties(video_path)
+        
+        if not metadata or not metadata.get("duration"):
+            print(f"Could not get duration for '{video_path}'. Skipping default thumbnail.")
+            return None
+        
+        thumbnail_time = metadata["duration"] / 2
+        
+        command = [
+            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', video_path,
+            '-ss', str(thumbnail_time), '-vframes', '1',
+            '-c:v', 'mjpeg', '-f', 'image2', '-y', thumbnail_path
+        ]
+        
+        process = await asyncio.create_subprocess_exec(*command, stderr=asyncio.subprocess.PIPE)
+        _, stderr = await process.communicate()
+        
+        if process.returncode != 0:
+            print(f"Error creating default thumbnail for '{video_path}': {stderr.decode().strip()}")
+            return None
+        
+        return thumbnail_path if os.path.exists(thumbnail_path) else None
+    
+    except Exception as e:
+        print(f"Thumbnail creation error: {e}")
+        return None
+
 
 async def download_video(client, file_id: str, file_name: str, user_id: int = None, status_message=None) -> str:
     """Download video from Telegram using client - DEPRECATED, use download_from_tg instead"""
