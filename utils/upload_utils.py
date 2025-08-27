@@ -5,10 +5,11 @@ Advanced upload utility functions with GoFile integration
 import aiohttp
 import os
 import time
+import asyncio
 from random import choice
 from bot.config import Config
 from utils.helpers import get_file_size, get_progress_bar
-from utils.file_utils import create_default_thumbnail
+from utils.file_utils import get_video_properties, create_default_thumbnail
 
 # Throttling for progress updates
 last_edit_time = {}
@@ -31,7 +32,7 @@ async def smart_progress_editor(status_message, text: str):
             pass
 
 class GoFileUploader:
-    """Advanced GoFile uploader with server selection"""
+    """Advanced GoFile uploader"""
     
     def __init__(self, token=None):
         self.api_url = "https://api.gofile.io/"
@@ -55,7 +56,7 @@ class GoFileUploader:
             return "store1"  # Fallback server
     
     async def upload_file(self, file_path: str, status_message=None):
-        """Upload file to GoFile with progress tracking"""
+        """Upload file to GoFile"""
         try:
             if not os.path.isfile(file_path):
                 raise FileNotFoundError(f"File not found: {file_path}")
@@ -67,7 +68,7 @@ class GoFileUploader:
             upload_url = f"https://{server}.gofile.io/uploadFile"
             
             if status_message:
-                await status_message.edit_text("☁️ **Uploading to GoFile...**\nThis may take a while for large files.")
+                await status_message.edit_text("☁️ **Uploading to GoFile...**")
             
             # Prepare form data
             data = aiohttp.FormData()
@@ -92,8 +93,7 @@ class GoFileUploader:
                                 await status_message.edit_text(
                                     f"✅ **Upload to GoFile Successful!**\n\n"
                                     f"📁 **File:** `{file_name}`\n"
-                                    f"📊 **Size:** `{get_file_size(file_size)}`\n"
-                                    f"🔗 **Download Link:** [Click Here]({download_page})"
+                                    f"📊 **Size:** `{get_file_size(file_size)}`"
                                 )
                             
                             return download_page
@@ -156,7 +156,7 @@ async def upload_to_gofile_anonymous(file_path: str, status_message=None) -> str
         return None
 
 async def upload_to_telegram(client, chat_id: int, file_path: str, status_message, custom_thumbnail: str = None, custom_filename: str = None):
-    """Upload file to Telegram with advanced features"""
+    """Upload file to Telegram with enhanced features"""
     is_default_thumb_created = False
     thumb_to_upload = custom_thumbnail
     
@@ -169,25 +169,12 @@ async def upload_to_telegram(client, chat_id: int, file_path: str, status_messag
                 is_default_thumb_created = True
         
         # Get video metadata
-        from utils.ffmpeg_utils import get_video_info
-        metadata = await get_video_info(file_path)
+        metadata = await get_video_properties(file_path)
+        duration = metadata.get('duration', 0) if metadata else 0
+        width = metadata.get('width', 0) if metadata else 0
+        height = metadata.get('height', 0) if metadata else 0
         
-        duration = 0
-        width = 0
-        height = 0
-        
-        if metadata and metadata.get('streams'):
-            for stream in metadata['streams']:
-                if stream.get('codec_type') == 'video':
-                    duration = int(float(stream.get('duration', 0)))
-                    width = stream.get('width', 0)
-                    height = stream.get('height', 0)
-                    break
-        
-        final_filename = custom_filename or f"{os.path.splitext(os.path.basename(file_path))[0]}.mkv"
-        if not final_filename.endswith('.mkv'):
-            final_filename += '.mkv'
-        
+        final_filename = f"{custom_filename or 'merged_video'}.mkv"
         file_size = os.path.getsize(file_path)
         caption = f"**File:** `{final_filename}`\n**Size:** `{get_file_size(file_size)}`"
         
