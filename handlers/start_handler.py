@@ -3,19 +3,21 @@ Start command handler
 """
 
 import asyncio
-from pyrogram import Client, filters
+from pyrogram import filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from bot.config import Config
 from bot.client import bot_client, get_user_session
-from database.users_db import add_user, get_user_count
+from bot.config import Config
+from database.users_db import add_user, get_user_count, init_database
+
+# Initialize database on module load
+asyncio.create_task(init_database())
 
 @bot_client.on_message(filters.command("start") & filters.private)
-async def start_command(client: Client, message: Message):
+async def start_command(client, message: Message):
     """Handle /start command"""
     user = message.from_user
     await add_user(user.id, user.first_name, user.username)
     
-    # Create inline keyboard
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🆘 Help", callback_data="help"),
@@ -34,7 +36,7 @@ async def start_command(client: Client, message: Message):
     )
 
 @bot_client.on_message(filters.command("help") & filters.private)
-async def help_command(client: Client, message: Message):
+async def help_command(client, message: Message):
     """Handle /help command"""
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔙 Back to Start", callback_data="start")]
@@ -46,9 +48,14 @@ async def help_command(client: Client, message: Message):
         quote=True
     )
 
+@bot_client.on_message(filters.command("ping") & filters.private)
+async def ping_command(client, message: Message):
+    """Test command"""
+    await message.reply_text("🏓 **Pong!** Bot is working perfectly!")
+
 @bot_client.on_message(filters.command("cancel") & filters.private)
-async def cancel_command(client: Client, message: Message):
-    """Handle /cancel command"""
+async def cancel_command(client, message: Message):
+    """Cancel current operation"""
     user_id = message.from_user.id
     session = get_user_session(user_id)
     
@@ -66,4 +73,8 @@ async def cancel_command(client: Client, message: Message):
             "You don't have any pending merge operation.",
             quote=True
         )
-        
+
+@bot_client.on_message(filters.command("id") & filters.private)
+async def id_command(client, message: Message):
+    """Get user ID"""
+    await message.reply_text(f"🆔 **Your ID:** `{message.from_user.id}`")
