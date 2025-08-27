@@ -1,42 +1,41 @@
 """
-Upload utilities for cloud services
+Upload utility functions for cloud services
 """
 
-import os
 import aiohttp
-import asyncio
-from typing import Optional
+import os
 from bot.config import Config
 
-async def upload_to_gofile(file_path: str) -> Optional[str]:
-    """
-    Upload file to GoFile.io
-    """
+async def upload_large_file(file_path: str) -> str:
+    """Upload large file to cloud service"""
+    # Try GoFile first
+    if Config.GOFILE_TOKEN:
+        result = await upload_to_gofile(file_path)
+        if result:
+            return result
+    
+    # Try other services or return None
+    return await upload_to_gofile_anonymous(file_path)
+
+async def upload_to_gofile(file_path: str) -> str:
+    """Upload file to GoFile.io with token"""
     try:
-        # First, get a server
         async with aiohttp.ClientSession() as session:
+            # Get upload server
             async with session.get('https://api.gofile.io/getServer') as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if data['status'] == 'ok':
-                        server = data['data']['server']
-                    else:
-                        return None
-                else:
+                if response.status != 200:
                     return None
-        
-        # Upload file to the server
-        upload_url = f'https://{server}.gofile.io/uploadFile'
-        
-        async with aiohttp.ClientSession() as session:
+                
+                data = await response.json()
+                server = data['data']['server']
+            
+            # Upload file
             with open(file_path, 'rb') as file:
-                data = aiohttp.FormData()
-                data.add_field('file', file, filename=os.path.basename(file_path))
+                form_data = aiohttp.FormData()
+                form_data.add_field('file', file, filename=os.path.basename(file_path))
+                form_data.add_field('token', Config.GOFILE_TOKEN)
                 
-                if Config.GOFILE_TOKEN:
-                    data.add_field('token', Config.GOFILE_TOKEN)
-                
-                async with session.post(upload_url, data=data) as response:
+                async with session.post(f'https://{server}.gofile.io/uploadFile', data=form_data) as response:
                     if response.status == 200:
                         result = await response.json()
                         if result['status'] == 'ok':
@@ -45,87 +44,70 @@ async def upload_to_gofile(file_path: str) -> Optional[str]:
         return None
     
     except Exception as e:
-        print(f"Error uploading to GoFile: {e}")
+        print(f"GoFile upload error: {e}")
         return None
 
-async def upload_to_streamtape(file_path: str) -> Optional[str]:
-    """
-    Upload file to Streamtape
-    """
+async def upload_to_gofile_anonymous(file_path: str) -> str:
+    """Upload file to GoFile.io anonymously"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Get upload server
+            async with session.get('https://api.gofile.io/getServer') as response:
+                if response.status != 200:
+                    return None
+                
+                data = await response.json()
+                server = data['data']['server']
+            
+            # Upload file
+            with open(file_path, 'rb') as file:
+                form_data = aiohttp.FormData()
+                form_data.add_field('file', file, filename=os.path.basename(file_path))
+                
+                async with session.post(f'https://{server}.gofile.io/uploadFile', data=form_data) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        if result['status'] == 'ok':
+                            return result['data']['downloadPage']
+        
+        return None
+    
+    except Exception as e:
+        print(f"GoFile anonymous upload error: {e}")
+        return None
+
+async def upload_to_streamtape(file_path: str) -> str:
+    """Upload file to Streamtape"""
     try:
         if not Config.STREAMTAPE_API_USERNAME or not Config.STREAMTAPE_API_PASS:
             return None
         
-        # Get upload server
         async with aiohttp.ClientSession() as session:
-            upload_url = f'https://api.streamtape.com/file/ul?login={Config.STREAMTAPE_API_USERNAME}&key={Config.STREAMTAPE_API_PASS}'
+            # Get upload URL
+            params = {
+                'login': Config.STREAMTAPE_API_USERNAME,
+                'key': Config.STREAMTAPE_API_PASS
+            }
             
-            async with session.get(upload_url) as response:
+            async with session.get('https://api.streamtape.com/file/ul', params=params) as response:
                 if response.status == 200:
                     data = await response.json()
                     if data['status'] == 200:
                         upload_url = data['result']['url']
-                    else:
-                        return None
-                else:
-                    return None
-        
-        # Upload file
-        async with aiohttp.ClientSession() as session:
-            with open(file_path, 'rb') as file:
-                data = aiohttp.FormData()
-                data.add_field('file1', file, filename=os.path.basename(file_path))
-                
-                async with session.post(upload_url, data=data) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        if result['status'] == 200:
-                            return result['result']['url']
+                        
+                        # Upload file
+                        with open(file_path, 'rb') as file:
+                            form_data = aiohttp.FormData()
+                            form_data.add_field('file1', file, filename=os.path.basename(file_path))
+                            
+                            async with session.post(upload_url, data=form_data) as upload_response:
+                                if upload_response.status == 200:
+                                    result = await upload_response.json()
+                                    if result['status'] == 200:
+                                        return result['result']['url']
         
         return None
     
     except Exception as e:
-        print(f"Error uploading to Streamtape: {e}")
+        print(f"Streamtape upload error: {e}")
         return None
-
-async def upload_large_file(file_path: str) -> Optional[str]:
-    """
-    Upload large file to appropriate cloud service
-    """
-    # Try GoFile first
-    gofile_link = await upload_to_gofile(file_path)
-    if gofile_link:
-        return gofile_link
-    
-    # Try Streamtape as fallback
-    streamtape_link = await upload_to_streamtape(file_path)
-    if streamtape_link:
-        return streamtape_link
-    
-    return None
-
-async def delete_from_gofile(file_id: str, account_token: str) -> bool:
-    """
-    Delete file from GoFile (requires premium account)
-    """
-    try:
-        if not account_token:
-            return False
-        
-        async with aiohttp.ClientSession() as session:
-            delete_url = f'https://api.gofile.io/deleteContent'
-            data = {
-                'contentId': file_id,
-                'token': account_token
-            }
-            
-            async with session.delete(delete_url, data=data) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    return result['status'] == 'ok'
-        
-        return False
-    
-    except Exception as e:
-        print(f"Error deleting from GoFile: {e}")
-        return False
