@@ -1,5 +1,5 @@
 """
-Advanced FFmpeg utility functions with robust merging
+Enhanced FFmpeg utilities with your merger logic
 """
 
 import asyncio
@@ -7,7 +7,8 @@ import os
 import time
 from typing import List
 from bot.config import Config
-from utils.helpers import get_progress_bar
+from utils.helpers import get_progress_bar, get_time_left
+from utils.file_utils import get_video_properties
 
 # Throttling for progress updates
 last_edit_time = {}
@@ -29,34 +30,18 @@ async def smart_progress_editor(status_message, text: str):
         except Exception:
             pass
 
-def get_time_left(elapsed_time: float, progress_percent: float) -> str:
-    """Calculate estimated time remaining"""
-    if progress_percent <= 0:
-        return "Calculating..."
-    
-    total_time = elapsed_time / progress_percent
-    time_left = total_time - elapsed_time
-    
-    if time_left < 60:
-        return f"{int(time_left)}s"
-    elif time_left < 3600:
-        return f"{int(time_left // 60)}m {int(time_left % 60)}s"
-    else:
-        hours = int(time_left // 3600)
-        minutes = int((time_left % 3600) // 60)
-        return f"{hours}h {minutes}m"
-
-async def merge_videos(video_files: List[str], output_path: str, thumbnail_path: str = None, status_message=None) -> bool:
+async def merge_videos(video_files: List[str], user_id: int, status_message=None) -> str:
     """
-    Advanced video merging with fast mode and robust fallback
+    Enhanced merge function using your logic with fast and robust modes
     """
     try:
-        if len(video_files) < 2:
-            return False
-        
-        user_id = os.path.basename(os.path.dirname(video_files[0]))
         user_download_dir = os.path.join(Config.DOWNLOAD_DIR, str(user_id))
+        output_path = os.path.join(user_download_dir, f"merged_{int(time.time())}.mkv")
         inputs_file = os.path.join(user_download_dir, "inputs.txt")
+        
+        print(f"Starting merge for user {user_id}")
+        print(f"Video files: {video_files}")
+        print(f"Output path: {output_path}")
         
         # Create inputs file with absolute paths
         with open(inputs_file, 'w', encoding='utf-8') as f:
@@ -64,6 +49,7 @@ async def merge_videos(video_files: List[str], output_path: str, thumbnail_path:
                 abs_path = os.path.abspath(file)
                 formatted_path = abs_path.replace("'", "'\\''")
                 f.write(f"file '{formatted_path}'\n")
+                print(f"Added to input file: {formatted_path}")
         
         if status_message:
             await status_message.edit_text("🚀 **Starting Merge (Fast Mode)...**\nThis should be quick if videos are compatible.")
@@ -75,23 +61,21 @@ async def merge_videos(video_files: List[str], output_path: str, thumbnail_path:
             '-c', 'copy', '-y', output_path
         ]
         
+        print(f"Fast merge command: {' '.join(command)}")
+        
         process = await asyncio.create_subprocess_exec(
             *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         
         stdout, stderr = await process.communicate()
         
-        # Check if fast merge succeeded
         if process.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
             if status_message:
                 await status_message.edit_text("✅ **Merge Complete! (Fast Mode)**")
             
-            # Add thumbnail if provided
-            if thumbnail_path and os.path.exists(thumbnail_path):
-                await add_thumbnail(output_path, thumbnail_path)
-            
+            print(f"Fast merge successful: {output_path} ({os.path.getsize(output_path)} bytes)")
             os.remove(inputs_file)
-            return True
+            return output_path
         else:
             # Fast merge failed, try robust mode
             error_log = stderr.decode().strip()
@@ -104,44 +88,42 @@ async def merge_videos(video_files: List[str], output_path: str, thumbnail_path:
                 )
                 await asyncio.sleep(2)
             
-            os.remove(inputs_file)
-            return await merge_videos_robust(video_files, output_path, thumbnail_path, status_message)
+            if os.path.exists(inputs_file):
+                os.remove(inputs_file)
+            return await merge_videos_robust(video_files, user_id, status_message)
     
     except Exception as e:
         print(f"Merge error: {e}")
         if status_message:
             await status_message.edit_text(f"❌ **Merge Failed!**\nError: `{str(e)}`")
-        return False
+        return None
 
-async def merge_videos_robust(video_files: List[str], output_path: str, thumbnail_path: str = None, status_message=None) -> bool:
+async def merge_videos_robust(video_files: List[str], user_id: int, status_message=None) -> str:
     """Robust merge using filter_complex with progress tracking"""
     try:
+        user_download_dir = os.path.join(Config.DOWNLOAD_DIR, str(user_id))
+        output_path = os.path.join(user_download_dir, f"merged_fallback_{int(time.time())}.mkv")
+        
+        print(f"Starting robust merge for user {user_id}")
+        
         # Get video properties
-        tasks = [get_video_info(f) for f in video_files]
+        tasks = [get_video_properties(f) for f in video_files]
         all_properties = await asyncio.gather(*tasks)
         
-        valid_durations = []
-        for props in all_properties:
-            if props and props.get('format', {}).get('duration'):
-                try:
-                    duration = float(props['format']['duration'])
-                    valid_durations.append(duration)
-                except (ValueError, TypeError):
-                    valid_durations.append(0)
-            else:
-                valid_durations.append(0)
+        valid_properties = [p for p in all_properties if p and p.get('duration') is not None]
         
-        if len(valid_durations) != len(video_files):
+        if len(valid_properties) != len(video_files):
             if status_message:
                 await status_message.edit_text("❌ **Merge Failed!** Could not read metadata from one or more videos.")
-            return False
+            return None
         
-        total_duration = sum(valid_durations)
+        total_duration = sum(p['duration'] for p in valid_properties)
+        print(f"Total duration: {total_duration} seconds")
         
         if total_duration == 0:
             if status_message:
                 await status_message.edit_text("❌ **Merge Failed!** Total video duration is zero.")
-            return False
+            return None
         
         # Build FFmpeg command
         input_args = []
@@ -159,6 +141,8 @@ async def merge_videos_robust(video_files: List[str], output_path: str, thumbnai
             '-crf', '23', '-c:a', 'aac', '-b:a', '192k', '-y',
             '-progress', 'pipe:1', output_path
         ]
+        
+        print(f"Robust merge command: {' '.join(command[:10])}...")
         
         process = await asyncio.create_subprocess_exec(
             *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -196,11 +180,8 @@ async def merge_videos_robust(video_files: List[str], output_path: str, thumbnai
             if status_message:
                 await status_message.edit_text("✅ **Merge Complete! (Robust Mode)**")
             
-            # Add thumbnail if provided
-            if thumbnail_path and os.path.exists(thumbnail_path):
-                await add_thumbnail(output_path, thumbnail_path)
-            
-            return True
+            print(f"Robust merge successful: {output_path} ({os.path.getsize(output_path)} bytes)")
+            return output_path
         else:
             stderr = await process.stderr.read()
             error_output = stderr.decode().strip()
@@ -209,13 +190,18 @@ async def merge_videos_robust(video_files: List[str], output_path: str, thumbnai
             if status_message:
                 await status_message.edit_text("❌ **Merge Failed!**\nRobust method also failed. See logs for details.")
             
-            return False
+            return None
     
     except Exception as e:
         print(f"Robust merge error: {e}")
         if status_message:
             await status_message.edit_text(f"❌ **Robust Merge Failed!**\nError: `{str(e)}`")
-        return False
+        return None
+
+async def get_video_info(video_path: str) -> dict:
+    """Get video information using FFprobe - alias for get_video_properties"""
+    from utils.file_utils import get_video_properties
+    return await get_video_properties(video_path)
 
 async def add_thumbnail(video_path: str, thumbnail_path: str) -> bool:
     """Add thumbnail to video file"""
@@ -252,33 +238,3 @@ async def add_thumbnail(video_path: str, thumbnail_path: str) -> bool:
     except Exception as e:
         print(f"Thumbnail add error: {e}")
         return False
-
-async def get_video_info(video_path: str) -> dict:
-    """Get video information using FFprobe"""
-    try:
-        command = [
-            'ffprobe',
-            '-v', 'quiet',
-            '-print_format', 'json',
-            '-show_format',
-            '-show_streams',
-            video_path
-        ]
-        
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode == 0:
-            import json
-            return json.loads(stdout.decode())
-        
-        return {}
-    
-    except Exception as e:
-        print(f"Video info error: {e}")
-        return {}
