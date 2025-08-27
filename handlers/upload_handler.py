@@ -1,5 +1,5 @@
 """
-Upload handler for videos and thumbnails
+Enhanced upload handler with URL support
 """
 
 from pyrogram import filters
@@ -7,6 +7,103 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from bot.client import bot_client, get_user_session
 from bot.config import Config
 from utils.helpers import get_file_size, format_duration
+from utils.file_utils import download_from_url
+import re
+
+# URL regex pattern
+URL_PATTERN = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
+
+@bot_client.on_message(filters.text & filters.private)
+async def handle_url_message(client, message: Message):
+    """Handle URL messages for video downloads"""
+    text = message.text.strip()
+    urls = URL_PATTERN.findall(text)
+    
+    if not urls:
+        # Regular text message
+        if not text.startswith('/'):
+            await message.reply_text(
+                f"📢 You said: **{text}**\n\n"
+                "💡 **Tips:**\n"
+                "• Send video files to merge them\n"
+                "• Send direct video URLs to download and merge\n"
+                "• Use `/ping` to test the bot\n"
+                "• Use `/help` for more information"
+            )
+        return
+    
+    user_id = message.from_user.id
+    session = get_user_session(user_id)
+    
+    if session["merge_in_progress"]:
+        await message.reply_text(
+            "⏳ **Merge in Progress**\n\n"
+            "Please wait for the current merge operation to complete.",
+            quote=True
+        )
+        return
+    
+    # Process URLs
+    status_msg = await message.reply_text("📥 **Processing URLs...**", quote=True)
+    
+    downloaded_videos = 0
+    for url in urls:
+        try:
+            # Download from URL
+            file_path = await download_from_url(url, user_id, status_msg)
+            
+            if file_path:
+                # Add to session
+                import os
+                file_size = os.path.getsize(file_path)
+                file_name = os.path.basename(file_path)
+                
+                video_info = {
+                    "file_id": None,  # URL downloads don't have file_id
+                    "file_name": file_name,
+                    "duration": 0,
+                    "file_size": file_size,
+                    "message_id": message.id,
+                    "local_path": file_path  # Store local path for URL downloads
+                }
+                
+                session["videos"].append(video_info)
+                downloaded_videos += 1
+        
+        except Exception as e:
+            print(f"URL download error: {e}")
+    
+    if downloaded_videos > 0:
+        video_count = len(session["videos"])
+        total_size = sum(v["file_size"] for v in session["videos"])
+        
+        keyboard = None
+        if video_count >= 2:
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🎬 Merge Videos", callback_data="merge_videos"),
+                    InlineKeyboardButton("🗑 Clear All", callback_data="clear_videos")
+                ]
+            ])
+        
+        progress_text = f"""
+📥 **URL Download Complete!**
+
+📊 **Current Status:**
+• Downloaded from URLs: **{downloaded_videos}**
+• Total videos in queue: **{video_count}**
+• Total size: **{get_file_size(total_size)}**
+
+"""
+        
+        if video_count == 1:
+            progress_text += "📨 **Send more videos** to merge them together!"
+        else:
+            progress_text += "✅ **Ready to merge!** Click the merge button below."
+        
+        await status_msg.edit_text(progress_text, reply_markup=keyboard)
+    else:
+        await status_msg.edit_text("❌ **No videos downloaded**\n\nPlease check your URLs and try again.")
 
 @bot_client.on_message(filters.video & filters.private)
 async def handle_video_upload(client, message: Message):
@@ -39,7 +136,8 @@ async def handle_video_upload(client, message: Message):
         "file_name": getattr(message.video, 'file_name', f"video_{len(session['videos']) + 1}.mp4"),
         "duration": message.video.duration or 0,
         "file_size": file_size,
-        "message_id": message.id
+        "message_id": message.id,
+        "local_path": None  # Will be set during download
     }
     
     session["videos"].append(video_info)
@@ -116,7 +214,8 @@ async def handle_document_upload(client, message: Message):
             "file_name": document.file_name,
             "duration": 0,  # Duration not available for documents
             "file_size": file_size,
-            "message_id": message.id
+            "message_id": message.id,
+            "local_path": None
         }
         
         session["videos"].append(video_info)
