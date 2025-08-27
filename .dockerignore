@@ -1,18 +1,19 @@
-# Git files
-.git
-.gitignore
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-
-# Environment variables
 .env
-
-# Session and log files
 *.session
 *.log
-
-# VS Code directory
-.vscode/
+__pycache__/
+*.py[cod]
+*$py.class
+.git/
+.gitignore
+README.md
+.dockerignore
+Dockerfile
+downloads/*
+merged/*
+thumbnails/*
+users.db
+.pytest_cache/
+.coverage
+*.tmp
+*.temp
