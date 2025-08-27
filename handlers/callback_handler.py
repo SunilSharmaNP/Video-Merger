@@ -2,14 +2,14 @@
 Callback query handler for inline buttons
 """
 
-from pyrogram import Client, filters
+from pyrogram import filters
 from pyrogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from bot.config import Config
 from bot.client import bot_client, get_user_session
+from bot.config import Config
 from database.users_db import get_user_count
 
 @bot_client.on_callback_query()
-async def handle_callback_query(client: Client, callback_query: CallbackQuery):
+async def handle_callback_query(client, callback_query: CallbackQuery):
     """Handle callback queries from inline keyboards"""
     data = callback_query.data
     user_id = callback_query.from_user.id
@@ -44,12 +44,15 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
     elif data == "stats":
         total_users = await get_user_count()
         
-        stats_text = (
-            f"📊 **Bot Statistics**\n\n"
-            f"👥 **Total Users:** {total_users}\n"
-            f"🤖 **Bot Version:** 2.0\n"
-            f"⚡ **Status:** Active"
-        )
+        stats_text = f"""
+📊 **Bot Statistics**
+
+👥 **Total Users:** {total_users}
+🤖 **Bot Version:** 2.0
+⚡ **Status:** Active ✅
+
+Bot is working perfectly!
+"""
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔙 Back to Start", callback_data="start")]
@@ -61,7 +64,6 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
         )
     
     elif data == "merge_videos":
-        from handlers.merge_handler import start_merge_process
         session = get_user_session(user_id)
         
         if len(session["videos"]) < 2:
@@ -73,7 +75,13 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
             return
         
         await callback_query.answer("🎬 Starting merge process...")
-        await start_merge_process(client, callback_query.message, user_id)
+        
+        # Import here to avoid circular imports
+        try:
+            from handlers.merge_handler import start_merge_process
+            await start_merge_process(client, callback_query.message, user_id)
+        except ImportError:
+            await callback_query.message.reply_text("❌ Merge functionality not available yet.")
     
     elif data == "clear_videos":
         session = get_user_session(user_id)
@@ -87,15 +95,5 @@ async def handle_callback_query(client: Client, callback_query: CallbackQuery):
         
         await callback_query.answer("✅ Videos cleared!")
     
-    elif data.startswith("delete_"):
-        # Handle file deletion callbacks (for admin features)
-        if user_id not in Config.SUDO_USERS:
-            await callback_query.answer("❌ You're not authorized!", show_alert=True)
-            return
-        
-        # Implementation for file deletion would go here
-        await callback_query.answer("🗑 File deleted!")
-    
     else:
         await callback_query.answer("❓ Unknown action!", show_alert=True)
-        
