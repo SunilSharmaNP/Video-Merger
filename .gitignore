@@ -27,3 +27,9 @@ downloads/*
 merged/*
 thumbnails/*
 users.db
+.pytest_cache/
+.coverage
+*.tmp
+*.temp
+data/
+logs/
