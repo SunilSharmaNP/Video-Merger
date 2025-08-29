@@ -1,5 +1,5 @@
 """
-Video Merge Bot - Complete Working Version
+Video Merge Bot - Complete Working Version (thumbnail logic removed)
 """
 
 import uvloop
@@ -31,9 +31,9 @@ async def main():
         # Create necessary directories
         os.makedirs("downloads", exist_ok=True)
         os.makedirs("merged", exist_ok=True)
-        os.makedirs("thumbnails", exist_ok=True)
         os.makedirs("data", exist_ok=True)
         os.makedirs("logs", exist_ok=True)
+        # Removed: os.makedirs("thumbnails", exist_ok=True)
         
         # Import and start bot
         from bot.client import bot_client
