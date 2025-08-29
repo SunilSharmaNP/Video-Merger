@@ -46,7 +46,7 @@ async def start_merge_process(client, message: Message):
         # Download videos
         video_paths = []
         for i, info in enumerate(session["videos"]):
-            await progress_msg.edit_text(f"📥 Downloading {i+1}/{len(session['videos'])}…", quote=True)
+            await progress_msg.edit_text(f"📥 Downloading {i+1}/{len(session['videos'])}…")
             
             if info.get("local_path"):
                 path = info["local_path"]
@@ -61,15 +61,14 @@ async def start_merge_process(client, message: Message):
         
         if len(video_paths) < 2:
             await progress_msg.edit_text(
-                f"❌ Download failed: only {len(video_paths)} videos downloaded.",
-                quote=True
+                f"❌ Download failed: only {len(video_paths)} videos downloaded."
             )
             return
         
         # Merge videos
         merged_path = await merge_videos(video_paths, user_id, progress_msg)
         if not merged_path or not os.path.exists(merged_path):
-            await progress_msg.edit_text("❌ Merge failed. Check logs.", quote=True)
+            await progress_msg.edit_text("❌ Merge failed. Check logs.")
             return
         
         # Prompt upload choice
@@ -79,12 +78,11 @@ async def start_merge_process(client, message: Message):
         ])
         await progress_msg.edit_text(
             "✅ Merge complete!\nWhere should I upload the merged video?",
-            quote=True,
             reply_markup=buttons
         )
     
     except Exception as e:
-        await progress_msg.edit_text(f"❌ Error: {e}", quote=True)
+        await progress_msg.edit_text(f"❌ Error: {e}")
         print(f"Merge error: {e}")
     finally:
         session["merge_in_progress"] = False
@@ -98,10 +96,10 @@ async def on_upload_choice(client, query: CallbackQuery):
     await query.answer()
     
     if not os.path.exists(path):
-        return await query.message.edit_text("❌ Merged file not found.", quote=True)
+        return await query.message.edit_text("❌ Merged file not found.")
     
     if method == "tg":
-        await query.message.edit_text("📤 Uploading to Telegram…", quote=True)
+        await query.message.edit_text("📤 Uploading to Telegram…")
         # Use the util function so that size/caption/progress is consistent and thumbnail is NOT used
         await upload_to_telegram(
             client=client,
@@ -111,9 +109,9 @@ async def on_upload_choice(client, query: CallbackQuery):
             custom_filename="merged_video"
         )
     else:
-        await query.message.edit_text("☁️ Uploading to GoFile…", quote=True)
+        await query.message.edit_text("☁️ Uploading to GoFile…")
         link = await upload_large_file(path, query.message)
         if link:
-            await query.message.edit_text(f"✅ GoFile link: {link}", quote=True)
+            await query.message.edit_text(f"✅ GoFile link: {link}")
         else:
-            await query.message.edit_text("❌ GoFile upload failed.", quote=True)
+            await query.message.edit_text("❌ GoFile upload failed.")
