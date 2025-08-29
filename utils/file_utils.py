@@ -9,6 +9,7 @@ import uuid
 import json
 from contextlib import suppress
 from typing import Optional, Dict
+import mimetypes
 
 last_edit_time = {}
 EDIT_THROTTLE_SECONDS = 4.0
@@ -57,6 +58,8 @@ def safe_file_path(user_id: int, filename: str) -> str:
         os.makedirs(fallback_dir, exist_ok=True)
         return os.path.join(fallback_dir, f"video_{int(time.time())}.mp4")
 
+import mimetypes
+
 async def download_from_url(url: str, user_id: int, status_message=None) -> Optional[str]:
     """Download file from direct URL with comprehensive error handling and async IO"""
     try:
@@ -65,13 +68,13 @@ async def download_from_url(url: str, user_id: int, status_message=None) -> Opti
             error_msg = "Invalid URL provided"
             print(error_msg)
             if status_message:
-                await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}\nURL: `{url}`")
+                await status_message.edit_text(f"❌ Download Failed!\n{error_msg}\nURL: `{url}`")
             return None
         if not user_id:
             error_msg = "Invalid user ID provided"
             print(error_msg)
             if status_message:
-                await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
+                await status_message.edit_text(f"❌ Download Failed!\n{error_msg}")
             return None
 
         file_name = safe_filename_from_url(url)
@@ -79,57 +82,74 @@ async def download_from_url(url: str, user_id: int, status_message=None) -> Opti
         print(f"Download destination: {dest_path}")
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=30) as resp:
-                print(f"HTTP status: {resp.status}")
-                if resp.status == 200:
-                    total_size = int(resp.headers.get('content-length', 0))
-                    downloaded = 0
-                    async with aiofiles.open(dest_path, 'wb') as f:
-                        async for chunk in resp.content.iter_chunked(1024 * 1024):
-                            await f.write(chunk)
-                            downloaded += len(chunk)
-                            if total_size > 0 and status_message:
-                                progress = downloaded / total_size
-                                progress_text = (
-                                    f"📥 **Downloading from URL...**\n"
-                                    f"➢ `{file_name}`\n"
-                                    f"➢ {get_progress_bar(progress)} `{progress:.1%}`\n"
-                                    f"➢ **Size:** `{get_file_size(downloaded)}` / `{get_file_size(total_size)}`"
-                                )
-                                await smart_progress_editor(status_message, progress_text)
-                    if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
-                        print(f"Download successful: {dest_path} ({os.path.getsize(dest_path)} bytes)")
-                        if status_message:
-                            await status_message.edit_text(f"✅ **Downloaded:** `{file_name}`\n\nPreparing to merge...")
-                        return dest_path
+            try:
+                async with session.get(url, timeout=30, allow_redirects=True) as resp:
+                    print(f"HTTP status: {resp.status}")
+                    content_type = resp.headers.get("content-type", "")
+                    # Check if the response is a known video type
+                    if resp.status == 200 and ('video' in content_type or file_name.endswith(('.mp4','.mkv','.webm','.mov','.avi'))):
+                        total_size = int(resp.headers.get('content-length', 0))
+                        downloaded = 0
+                        async with aiofiles.open(dest_path, 'wb') as f:
+                            async for chunk in resp.content.iter_chunked(1024 * 1024):
+                                await f.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size > 0 and status_message:
+                                    progress = downloaded / total_size
+                                    progress_text = (
+                                        f"📥 **Downloading from URL...**\n"
+                                        f"➢ `{file_name}`\n"
+                                        f"➢ {get_progress_bar(progress)} `{progress:.1%}`\n"
+                                        f"➢ **Size:** `{get_file_size(downloaded)}` / `{get_file_size(total_size)}`"
+                                    )
+                                    await smart_progress_editor(status_message, progress_text)
+                        if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
+                            print(f"Download successful: {dest_path} ({os.path.getsize(dest_path)} bytes)")
+                            if status_message:
+                                await status_message.edit_text(f"✅ **Downloaded:** `{file_name}`\n\nPreparing to merge...")
+                            return dest_path
+                        else:
+                            error_msg = f"Downloaded file is empty or corrupted\nURL: `{url}`"
+                            print(error_msg)
+                            if status_message:
+                                await status_message.edit_text(f"❌ Download Failed!\n{error_msg}")
+                            return None
                     else:
-                        error_msg = f"Downloaded file is empty or corrupted\nURL: `{url}`"
-                        print(error_msg)
-                        if status_message:
-                            await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
-                        return None
-                else:
-                    error_msg = f"HTTP {resp.status} - {resp.reason}\nURL: `{url}`"
-                    print(f"Download failed: {error_msg}")
-                    if status_message:
-                        await status_message.edit_text(
-                            f"❌ **Download Failed!**\n"
-                            f"URL: `{url}`\n"
-                            f"HTTP status: {resp.status} - {resp.reason}\n"
-                            f"Please check that your URL is valid, accessible, and a direct video file."
+                        error_msg = (
+                            f"HTTP {resp.status} - {resp.reason}\n"
+                            f"Content-Type: {content_type}\n"
+                            f"URL: `{url}`"
                         )
-                    return None
+                        print(f"Download failed: {error_msg}")
+                        if status_message:
+                            await status_message.edit_text(
+                                f"❌ Download Failed!\n"
+                                f"URL: `{url}`\n"
+                                f"HTTP status: {resp.status} - {resp.reason}\n"
+                                f"Content-Type: {content_type}\n"
+                                f"Make sure you provide a direct link to a video file."
+                            )
+                        return None
+            except Exception as ex:
+                error_msg = f"Exception during download: {ex}\nURL: `{url}`"
+                print(error_msg)
+                if status_message:
+                    await status_message.edit_text(
+                        f"❌ Download Exception!\n"
+                        f"{error_msg}\n"
+                        f"Check the URL, your server's internet connection, and try again."
+                    )
+                return None
     except Exception as e:
-        error_msg = f"Download exception: {str(e)}\nURL: `{url}`"
+        error_msg = f"General Download Exception: {str(e)}\nURL: `{url}`"
         print(error_msg)
         if status_message:
-            with suppress(Exception):
-                await status_message.edit_text(
-                    f"❌ **Download Failed!**\n"
-                    f"{error_msg}\n"
-                    f"Please check the URL and your internet connection."
-                )
+            await status_message.edit_text(
+                f"❌ General Download Exception!\n{error_msg}"
+            )
         return None
+
+
 async def download_from_tg(message, user_id: int, status_message=None) -> Optional[str]:
     """Download file from Telegram with comprehensive error handling"""
     try:
@@ -138,13 +158,13 @@ async def download_from_tg(message, user_id: int, status_message=None) -> Option
             error_msg = "No message provided for download"
             print(error_msg)
             if status_message:
-                await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
+                await status_message.edit_text(f"❌ Download Failed!\n{error_msg}")
             return None
         if not user_id:
             error_msg = "Invalid user ID provided"
             print(error_msg)
             if status_message:
-                await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
+                await status_message.edit_text(f"❌ Download Failed!\n{error_msg}")
             return None
 
         file_name = None
@@ -156,7 +176,7 @@ async def download_from_tg(message, user_id: int, status_message=None) -> Option
             error_msg = "Message contains no downloadable video or document"
             print(error_msg)
             if status_message:
-                await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
+                await status_message.edit_text(f"❌ Download Failed!\n{error_msg}")
             return None
 
         dest_path = safe_file_path(user_id, file_name)
@@ -189,17 +209,17 @@ async def download_from_tg(message, user_id: int, status_message=None) -> Option
                 await status_message.edit_text(f"✅ **Downloaded:** `{actual_filename}`\n\nPreparing to merge...")
             return file_path
         else:
-            error_msg = "Download failed or file is empty"
+            error_msg = "Download failed or file is empty. This may be a Telegram issue or connection problem."
             print(error_msg)
             if status_message:
-                await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
+                await status_message.edit_text(f"❌ Download Failed!\n{error_msg}")
             return None
     except Exception as e:
         error_msg = f"Telegram download exception: {str(e)}"
         print(error_msg)
         if status_message:
             with suppress(Exception):
-                await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
+                await status_message.edit_text(f"❌ Download Failed!\n{error_msg}")
         return None
 
 async def clean_temp_files(user_id: int):
