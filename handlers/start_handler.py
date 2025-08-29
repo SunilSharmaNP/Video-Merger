@@ -73,7 +73,6 @@ async def cancel_command(client, message: Message):
             "You don't have any pending merge operation.",
             quote=True
         )
-
 @bot_client.on_message(filters.command("id") & filters.private)
 async def id_command(client, message: Message):
     """Get user ID"""
