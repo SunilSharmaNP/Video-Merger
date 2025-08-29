@@ -1,5 +1,5 @@
 """
-Enhanced FFmpeg utilities with your merger logic
+Enhanced FFmpeg utilities with your merger logic (no thumbnail logic)
 """
 
 import asyncio
@@ -202,39 +202,3 @@ async def get_video_info(video_path: str) -> dict:
     """Get video information using FFprobe - alias for get_video_properties"""
     from utils.file_utils import get_video_properties
     return await get_video_properties(video_path)
-
-async def add_thumbnail(video_path: str, thumbnail_path: str) -> bool:
-    """Add thumbnail to video file"""
-    try:
-        temp_path = video_path.replace('.mkv', '_temp.mkv')
-        
-        command = [
-            'ffmpeg',
-            '-i', video_path,
-            '-i', thumbnail_path,
-            '-map', '0',
-            '-map', '1',
-            '-c', 'copy',
-            '-c:v:1', 'png',
-            '-disposition:v:1', 'attached_pic',
-            '-y',
-            temp_path
-        ]
-        
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        await process.communicate()
-        
-        if process.returncode == 0 and os.path.exists(temp_path):
-            os.replace(temp_path, video_path)
-            return True
-        
-        return False
-    
-    except Exception as e:
-        print(f"Thumbnail add error: {e}")
-        return False
