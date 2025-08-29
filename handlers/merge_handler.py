@@ -7,11 +7,11 @@ import asyncio
 import time
 from pyrogram import filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from bot.client import bot_client, get_user_session, merge_tasks
+from bot.client import bot_client, get_user_session
 from bot.config import Config
 from utils.file_utils import download_from_tg, download_from_url, clean_temp_files
 from utils.ffmpeg_utils import merge_videos
-from utils.upload_utils import upload_large_file
+from utils.upload_utils import upload_large_file, upload_to_telegram
 
 @bot_client.on_message(filters.command("merge") & filters.private)
 async def merge_command(client, message: Message):
@@ -102,10 +102,13 @@ async def on_upload_choice(client, query: CallbackQuery):
     
     if method == "tg":
         await query.message.edit_text("📤 Uploading to Telegram…", quote=True)
-        await client.send_video(
+        # Use the util function so that size/caption/progress is consistent and thumbnail is NOT used
+        await upload_to_telegram(
+            client=client,
             chat_id=query.from_user.id,
-            video=path,
-            caption="✅ Here is your merged video!"
+            file_path=path,
+            status_message=query.message,
+            custom_filename="merged_video"
         )
     else:
         await query.message.edit_text("☁️ Uploading to GoFile…", quote=True)
