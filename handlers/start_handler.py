@@ -63,7 +63,7 @@ async def cancel_command(client, message: Message):
         session["videos"].clear()
         session["merge_in_progress"] = False
         await message.reply_text(
-            "❌ **Operation Cancelled!**\n\n"
+            "ℹ️ **Operation Cancelled!**\n\n"
             "All pending videos have been cleared. You can start fresh now!",
             quote=True
         )
