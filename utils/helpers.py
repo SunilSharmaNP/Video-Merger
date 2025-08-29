@@ -2,6 +2,9 @@
 Enhanced helper utility functions with null safety
 """
 
+import time
+import re
+
 def get_file_size(size_bytes) -> str:
     """Convert bytes to human readable format with null safety"""
     try:
@@ -79,9 +82,6 @@ def sanitize_filename(filename) -> str:
         if not filename or not isinstance(filename, str):
             return f"file_{int(time.time())}"
         
-        import re
-        import time
-        
         # Remove invalid characters
         filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
         # Remove multiple underscores
@@ -102,7 +102,6 @@ def sanitize_filename(filename) -> str:
     
     except Exception as e:
         print(f"Filename sanitization error: {e}")
-        import time
         return f"file_{int(time.time())}"
 
 def get_time_left(elapsed_time, progress_percent) -> str:
