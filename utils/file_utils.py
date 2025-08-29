@@ -194,44 +194,6 @@ async def download_from_tg(message, user_id: int, status_message=None) -> Option
                 await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
         return None
 
-async def create_default_thumbnail(video_path: str) -> Optional[str]:
-    """Create default thumbnail from video"""
-    try:
-        thumbnail_path = f"{os.path.splitext(video_path)[0]}.jpg"
-        metadata = await get_video_properties(video_path)
-        if not metadata or not metadata.get("duration"):
-            print(f"Could not get duration for '{video_path}'. Skipping default thumbnail.")
-            return None
-        thumbnail_time = metadata["duration"] / 2
-        command = [
-            'ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', video_path,
-            '-ss', str(thumbnail_time), '-vframes', '1',
-            '-c:v', 'mjpeg', '-f', 'image2', '-y', thumbnail_path
-        ]
-        process = await asyncio.create_subprocess_exec(*command, stderr=asyncio.subprocess.PIPE)
-        _, stderr = await process.communicate()
-        if process.returncode != 0:
-            print(f"Error creating default thumbnail for '{video_path}': {stderr.decode().strip()}")
-            return None
-        return thumbnail_path if os.path.exists(thumbnail_path) else None
-    except Exception as e:
-        print(f"Thumbnail creation error: {e}")
-        return None
-
-async def save_thumbnail(client, file_id: str, user_id: int) -> Optional[str]:
-    """Download and save thumbnail"""
-    try:
-        if not file_id or not user_id:
-            return None
-        thumbnail_path = os.path.join(Config.THUMBNAILS_DIR, f"thumb_{user_id}.jpg")
-        await client.download_media(file_id, thumbnail_path)
-        if os.path.exists(thumbnail_path):
-            return thumbnail_path
-        return None
-    except Exception as e:
-        print(f"Thumbnail save error: {e}")
-        return None
-
 async def clean_temp_files(user_id: int):
     """Clean temporary files for user"""
     try:
