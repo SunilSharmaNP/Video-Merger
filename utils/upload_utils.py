@@ -9,7 +9,7 @@ import asyncio
 from random import choice
 from bot.config import Config
 from utils.helpers import get_file_size, get_progress_bar
-from utils.file_utils import get_video_properties, create_default_thumbnail
+from utils.file_utils import get_video_properties
 
 # Throttling for progress updates
 last_edit_time = {}
@@ -155,19 +155,9 @@ async def upload_to_gofile_anonymous(file_path: str, status_message=None) -> str
         print(f"GoFile anonymous upload error: {e}")
         return None
 
-async def upload_to_telegram(client, chat_id: int, file_path: str, status_message, custom_thumbnail: str = None, custom_filename: str = None):
-    """Upload file to Telegram with enhanced features"""
-    is_default_thumb_created = False
-    thumb_to_upload = custom_thumbnail
-    
+async def upload_to_telegram(client, chat_id: int, file_path: str, status_message, custom_filename: str = None):
+    """Upload file to Telegram with enhanced features (no thumbnail logic)"""
     try:
-        # Create default thumbnail if none provided
-        if not thumb_to_upload:
-            await smart_progress_editor(status_message, "🎨 **Creating Default Thumbnail...**")
-            thumb_to_upload = await create_default_thumbnail(file_path)
-            if thumb_to_upload:
-                is_default_thumb_created = True
-        
         # Get video metadata
         metadata = await get_video_properties(file_path)
         duration = metadata.get('duration', 0) if metadata else 0
@@ -184,7 +174,7 @@ async def upload_to_telegram(client, chat_id: int, file_path: str, status_messag
             progress_text = f"📤 **Uploading to Telegram...**\n➢ {get_progress_bar(progress_percent)} `{progress_percent:.1%}`"
             await smart_progress_editor(status_message, progress_text)
         
-        # Upload video
+        # Upload video (NO thumbnail)
         await client.send_video(
             chat_id=chat_id,
             video=file_path,
@@ -193,7 +183,6 @@ async def upload_to_telegram(client, chat_id: int, file_path: str, status_messag
             duration=duration,
             width=width,
             height=height,
-            thumb=thumb_to_upload,
             progress=progress
         )
         
@@ -203,8 +192,3 @@ async def upload_to_telegram(client, chat_id: int, file_path: str, status_messag
     except Exception as e:
         await status_message.edit_text(f"❌ **Upload Failed!**\nError: `{e}`")
         return False
-    
-    finally:
-        # Clean up default thumbnail
-        if is_default_thumb_created and thumb_to_upload and os.path.exists(thumb_to_upload):
-            os.remove(thumb_to_upload)
