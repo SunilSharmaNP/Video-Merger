@@ -65,7 +65,7 @@ async def download_from_url(url: str, user_id: int, status_message=None) -> Opti
             error_msg = "Invalid URL provided"
             print(error_msg)
             if status_message:
-                await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
+                await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}\nURL: `{url}`")
             return None
         if not user_id:
             error_msg = "Invalid user ID provided"
@@ -103,25 +103,33 @@ async def download_from_url(url: str, user_id: int, status_message=None) -> Opti
                             await status_message.edit_text(f"✅ **Downloaded:** `{file_name}`\n\nPreparing to merge...")
                         return dest_path
                     else:
-                        error_msg = "Downloaded file is empty or corrupted"
+                        error_msg = f"Downloaded file is empty or corrupted\nURL: `{url}`"
                         print(error_msg)
                         if status_message:
                             await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
                         return None
                 else:
-                    error_msg = f"HTTP {resp.status} - {resp.reason}"
+                    error_msg = f"HTTP {resp.status} - {resp.reason}\nURL: `{url}`"
                     print(f"Download failed: {error_msg}")
                     if status_message:
-                        await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
+                        await status_message.edit_text(
+                            f"❌ **Download Failed!**\n"
+                            f"URL: `{url}`\n"
+                            f"HTTP status: {resp.status} - {resp.reason}\n"
+                            f"Please check that your URL is valid, accessible, and a direct video file."
+                        )
                     return None
     except Exception as e:
-        error_msg = f"Download exception: {str(e)}"
+        error_msg = f"Download exception: {str(e)}\nURL: `{url}`"
         print(error_msg)
         if status_message:
             with suppress(Exception):
-                await status_message.edit_text(f"❌ **Download Failed!**\n{error_msg}")
+                await status_message.edit_text(
+                    f"❌ **Download Failed!**\n"
+                    f"{error_msg}\n"
+                    f"Please check the URL and your internet connection."
+                )
         return None
-
 async def download_from_tg(message, user_id: int, status_message=None) -> Optional[str]:
     """Download file from Telegram with comprehensive error handling"""
     try:
