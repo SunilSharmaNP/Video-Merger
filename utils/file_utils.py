@@ -3,29 +3,42 @@ import asyncio
 import time
 import aiofiles
 import aiohttp
-from bot.config import Config
-from utils.helpers import sanitize_filename, get_file_size, get_progress_bar
+from bot.config import Config # Assuming Config is correctly imported from bot.config
+from utils.helpers import sanitize_filename, get_file_size, get_progress_bar # Ensure these are correct
 import uuid
 import json
 from contextlib import suppress
 from typing import Optional, Dict
 import mimetypes
 
+# --- Throttling Logic ---
 last_edit_time = {}
 EDIT_THROTTLE_SECONDS = 4.0
 
 async def smart_progress_editor(status_message, text: str):
-    """Throttled editor to prevent FloodWait errors"""
+    """
+    Throttled editor to prevent FloodWait errors.
+    This is the core of the FloodWait prevention.
+    """
     if not status_message or not hasattr(status_message, 'chat'):
         return
     try:
+        # Create a unique key for the message
         message_key = f"{status_message.chat.id}_{status_message.id}"
         now = time.time()
+
+        # Get the last time we edited this message, defaulting to 0 if it's the first time
         last_time = last_edit_time.get(message_key, 0)
+
+        # If more than EDIT_THROTTLE_SECONDS have passed, we can edit the message
         if (now - last_time) > EDIT_THROTTLE_SECONDS:
             await status_message.edit_text(text)
+            # IMPORTANT: Update the last edit time for this message
             last_edit_time[message_key] = now
     except Exception as e:
+        # If we still get an error (e.g., message not modified, or FloodWait)
+        # we just log it and ignore, trying again on the next scheduled update.
+        # This prevents the whole download from crashing due to edit failures.
         print(f"Progress editor error: {e}")
 
 def safe_filename_from_url(url: str) -> str:
@@ -58,8 +71,6 @@ def safe_file_path(user_id: int, filename: str) -> str:
         os.makedirs(fallback_dir, exist_ok=True)
         return os.path.join(fallback_dir, f"video_{int(time.time())}.mp4")
 
-import mimetypes
-
 async def download_from_url(url: str, user_id: int, status_message=None) -> Optional[str]:
     """Download file from direct URL with comprehensive error handling and async IO"""
     try:
@@ -86,8 +97,8 @@ async def download_from_url(url: str, user_id: int, status_message=None) -> Opti
                 async with session.get(url, timeout=30, allow_redirects=True) as resp:
                     print(f"HTTP status: {resp.status}")
                     content_type = resp.headers.get("content-type", "")
-                    # Check if the response is a known video type
-                    if resp.status == 200 and ('video' in content_type or file_name.endswith(('.mp4','.mkv','.webm','.mov','.avi'))):
+                    
+                    if resp.status == 200 and ('video' in content_type or file_name.endswith(('.mp4','.mkv','.webm','.mov','.avi', '.gif'))): # Added .gif
                         total_size = int(resp.headers.get('content-length', 0))
                         downloaded = 0
                         async with aiofiles.open(dest_path, 'wb') as f:
@@ -103,9 +114,11 @@ async def download_from_url(url: str, user_id: int, status_message=None) -> Opti
                                         f"➢ **Size:** `{get_file_size(downloaded)}` / `{get_file_size(total_size)}`"
                                     )
                                     await smart_progress_editor(status_message, progress_text)
+                        
                         if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
                             print(f"Download successful: {dest_path} ({os.path.getsize(dest_path)} bytes)")
                             if status_message:
+                                # Final update for download success
                                 await status_message.edit_text(f"✅ **Downloaded:** `{file_name}`\n\nPreparing to merge...")
                             return dest_path
                         else:
@@ -122,36 +135,26 @@ async def download_from_url(url: str, user_id: int, status_message=None) -> Opti
                         )
                         print(f"Download failed: {error_msg}")
                         if status_message:
-                            await status_message.edit_text(
-                                f"❌ Download Failed!\n"
-                                f"URL: `{url}`\n"
-                                f"HTTP status: {resp.status} - {resp.reason}\n"
-                                f"Content-Type: {content_type}\n"
-                                f"Make sure you provide a direct link to a video file."
-                            )
+                            await status_message.edit_text(f"❌ **Download Failed!**\nStatus: {resp.status} for URL: `{url}`\nMake sure you provide a direct link to a video file.")
                         return None
             except Exception as ex:
                 error_msg = f"Exception during download: {ex}\nURL: `{url}`"
                 print(error_msg)
                 if status_message:
-                    await status_message.edit_text(
-                        f"❌ Download Exception!\n"
-                        f"{error_msg}\n"
-                        f"Check the URL, your server's internet connection, and try again."
-                    )
+                    with suppress(Exception): # Suppress exceptions from editing if bot is flood-waited
+                        await status_message.edit_text(f"❌ **Download Failed!**\nError: `{str(ex)}`")
                 return None
     except Exception as e:
         error_msg = f"General Download Exception: {str(e)}\nURL: `{url}`"
         print(error_msg)
         if status_message:
-            await status_message.edit_text(
-                f"❌ General Download Exception!\n{error_msg}"
-            )
+            with suppress(Exception): # Suppress exceptions from editing if bot is flood-waited
+                await status_message.edit_text(f"❌ **Download Failed!**\nError: `{str(e)}`")
         return None
 
 
 async def download_from_tg(message, user_id: int, status_message=None) -> Optional[str]:
-    """Download file from Telegram with comprehensive error handling"""
+    """Download file from Telegram with comprehensive error handling and smart progress reporting."""
     try:
         print(f"Starting Telegram download for user {user_id}")
         if not message:
@@ -186,9 +189,16 @@ async def download_from_tg(message, user_id: int, status_message=None) -> Option
             try:
                 if status_message and total > 0:
                     progress = current / total
+                    # Try to get the file name from the message object dynamically, or use a fallback
+                    current_file_name = (
+                        message.video.file_name if getattr(message, "video", None) and message.video.file_name
+                        else message.document.file_name if getattr(message, "document", None) and message.document.file_name
+                        else "telegram_file.mp4"
+                    )
+
                     progress_text = (
                         f"📥 **Downloading from Telegram...**\n"
-                        f"➢ `{file_name}`\n"
+                        f"➢ `{current_file_name}`\n"
                         f"➢ {get_progress_bar(progress)} `{progress:.1%}`\n"
                         f"➢ **Size:** `{get_file_size(current)}` / `{get_file_size(total)}`"
                     )
@@ -197,7 +207,7 @@ async def download_from_tg(message, user_id: int, status_message=None) -> Option
                 print(f"Progress callback error: {e}")
 
         file_path = await message.download(
-            file_name=dest_path,
+            file_name=dest_path, # Use the full dest_path here
             progress=progress_func if status_message else None
         )
         print(f"Download completed: {file_path}")
@@ -218,8 +228,8 @@ async def download_from_tg(message, user_id: int, status_message=None) -> Option
         error_msg = f"Telegram download exception: {str(e)}"
         print(error_msg)
         if status_message:
-            with suppress(Exception):
-                await status_message.edit_text(f"❌ Download Failed!\n{error_msg}")
+            with suppress(Exception): # Suppress exceptions from editing if bot is flood-waited
+                await status_message.edit_text(f"❌ **Download Failed!**\nError: `{str(e)}`")
         return None
 
 async def clean_temp_files(user_id: int):
